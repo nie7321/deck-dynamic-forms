@@ -15,4 +15,7 @@ This is authored in [Marp](https://marp.app/) and built with the marp-cli.
 npm install -g @marp-team/marp-cli
 
 npx marp --html deck.md
+npx marp --allow-local-files --pdf deck.md
 ```
+
+The compiled HTML & PDF are included in the repo, if you want a quick reference.

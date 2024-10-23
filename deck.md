@@ -21,12 +21,16 @@ Presented by Nick Evans
 <!-- Just to set things up: this is a case study. We made some cool tech as part of a larger project, and I want to talk about it.
 
 There were some interesting challenges in using this tech. It solved some problems, but created new ones.
+
+If you have questions as we're going through, just shout me down and ask!
 -->
 
 # Goal
 - We did a cool thing
 - I'm going to tell you about the cool thing
-- Some of it is open source!
+- Some of it is open source
+
+**Feel free to ask questions as you have them!**
 
 ![bg left](./assets/soap-workflow.PNG)
 
@@ -285,7 +289,7 @@ class FormController extends Controller
 
 But, on Laravel, this will pull in the UI packages for formio. They depend on Bootstrap and Font Awesome -- if you're using those in your app already, you're golden.
 
-The QR code here links to the docs for the library. I'll include it again at the end, because I've still got a lot to talk about...
+The QR code here links to the docs for the library. 
 -->
 
 # Wait, this is a library?!?
@@ -317,13 +321,11 @@ But in SOAP, people can build any form they want. The backend code cannot make a
 You see here a whole host of things we need to do for our implementation. Most of them stem from the fact that the app essentially has no defined database schema for the most important data. Instead, we have a couple heaps of JSON. -->
 
 # Challenges
-- Extending Formio with Northwestern's field types
-- Customizing File Uploads
-- Storing & querying this data
-- Using the data for emails
-- Complex validations & calculated values
-- Apples-to-apples comparison of data?
-- Using external data to show/hide things
+1. Extending Formio with Northwestern's field types
+1. Customizing File Uploads
+1. Storing & querying this data
+1. Using the data for emails
+1. Complex validations & calculated values
 
 ---
 
@@ -581,21 +583,183 @@ The key is probably pagination. It selects 25 records at a time, so there's alwa
 
 ---
 
-<!--  -->
+<!-- Switching topics now. A common thing you gotta do when somebody submits a form, is send them a "thanks for submitting" email. A receipt for their form, if you will.
 
-# Apples-to-Apples Comparisons
-- Defining your own forms is great, but if app enforces no structure at all, comparing things across grants is hard, e.g.
-    - One form collect "First Name" & "Last Name" fields
-    - Another form just collects "Name"
-- Solution is to require some form fields in the builder
-    - Start form w/ fields
-    - Take away "Delete"
-    - Validate!
-- Allows platform to pre-fill stuff, once it guarantees a field exists
+This becomes a gigantic pain when half the data is unstructured. You can't pre-define variables for people to put in email templates anymore. This too must look at the form definition to figure out what fields to give people.
+-->
+
+## Using the data for emails
+- Need to let people use the form data in confirmation emails, approval emails, etc
+- Solution: Add more JSON
+    - Mustache `{{ variable }}` syntax
+    - TinyMCE Plugin to insert the variables
 
 ---
 
-![](./assets/mandatory-fields.png)
+<!-- Here's a picture of what I'm trying to describe: we take the form definition and our own DB schema, and make that schema JSON. That's one JSON doc. The second is where we take actual data for a student filling out forms, and put it together: the relational data and the NosQL formio data. 
+
+These feed into two different spots: one into our editor for email templates, and one into the code that sends emails. -->
+
+## Using the data for emails
+- Generate two JSON docs
+    1. Schema listing out all the fields/datatypes for a workflow
+    2. Student data, with relational + NoSQL stuff combined
+
+![bg left](./assets/tinymce-arch.png)
+
+---
+
+<!-- So here's a very, very simplified version of that big JSON document. This is combining relational and NoSQL data: most of this doc is relational. But, that "form" key at the bottom is the form submission JSON from formio. 
+
+Any process using this JSON doesn't know the difference. It's just JSON. On its own, this is not very exciting. -->
+
+## Combined JSON Doc
+```json
+{
+    "applicationId": 1234,
+    "grantProgram": { 
+        "label": "Summer Research Grant", 
+    },
+    "grantCycle": { 
+        "name": "Academic Year 2024-25", 
+    },
+    "workflow": {
+        "proposal": {
+            "submittedAt": "2024-01-01T00:00:00Z",
+            "form": { "firstName": "Willie", "lastName": "Wildcat"}
+        }
+    }
+}
+```
+
+---
+
+<!-- The second document is a schema that combines the layout of our relational and NoSQL data together, basically. You see I have two "sections", which have three fields each. 
+
+The sections are headers -- general information has the app ID and the grant program. The proposal form has the fields from the user-defined formio form, but also some relational data like when the form got submitted.
+
+The UI can use this for things like the column selection dropdown. Or, a TinyMCE plugin can use this on the next slide ...
+-->
+
+## JSON Field Doc
+```json
+[
+    {   
+        "section": "General",
+        "fields": [
+            { "label": "Application ID", "type": "int", "path": "applicationId" },
+            { "label": "Program", "type": "string", "path": "grantProgram.label" },
+            { "label": "Cycle Name", "type": "string", "path": "grantCycle.name" },
+        ]
+    },
+    {   
+        "section": "Proposal Form",
+        "fields": [
+            { "label": "Submitted At", "type": "datetime", "path": "workflow.proposal.submittedAt" },
+            { "label": "First Name", "type": "string", "path": "workflow.proposal.form.firstName" },
+            { "label": "Last Name", "type": "string", "path": "workflow.proposal.form.lastName" },
+        ]
+    }    
+]
+```
+
+---
+<!-- So, to start this slide off, I want to admit that I am lying to you. For SOAP, we used a similar editor to TinyMCE, called Quill. This was widely regarded as a mistake. Customizing Quill was a horrible experience. 
+
+On a subsequent project using this tech, we used TinyMCE instead. It was much easier to get this working on TinyMCE. So, let's pretend the Quill thing never happened.
+
+But here's what it looks like. The Insert Variable popup is consuming the schema JSON document to figure out what sections and fields to offer. When you insert it, it puts the path in the email.
+
+The plugin we made isn't packaged up nicely like the dynamic-forms PHP stuff. But if somebody's interested, we're quite happy to share the code. I think Tim wrote most of the TinyMCE plugin. Hi Tim!
+-->
+# TinyMCE Insert Variable Plugin
+
+<video controls="controls" style="width: 100%" autoplay src="./assets/insert-var-plugin.webm"></video>
+
+---
+
+<!-- To actually get the variable substitution working, we feed the JSON doc with the combined relational and NoSQL data. It figures it out from there. 
+
+You can do simple formatting functions too. Joining arrays into strings, date formats, that sort of thing. The insert variable TinyMCE tool knows what datatype each field is, so it can intelligently include date format functions or whatever when it inserts the Mustache variable. -->
+
+# Mustache Templates
+- Super simple templating language
+- Give it data & some `{{ variables }}`
+- Modifiers too: `{{ some_array | join }}`
+    - `["foo", "bar"]` => `"foo, bar"`
+
+```php
+$m = new Mustache_Engine;
+
+$m->render(
+    'Hello {{ student.name }}', 
+    json_decode('{"student": { "name": "Willie the Wildcat"} }')
+);
+//=> "Hello Willie the Wildcat"
+```
+
+---
+
+<!-- Next topic. There's a really good way to do simple conditional fields show this field if this other field has a value of "other". That's a very easy UI paradigm.
+
+But as soon as it has to be more complicated, Formio ejects into "write code". They offer two ways to do this: let your users write JS that has to be executed client- and server-side, or write JSONLogic.
+
+NodeJS is right out. I'm not running arbitrary JS on my server. That seems like asking for trouble.
+
+JSONLogic is a bit safer...
+-->
+
+## Complex validations & calculated values
+- Formio supports complex logic to
+    - Show or hide fields conditionally
+    - Calculate values (sums, or more complicated things)
+    - Validations (sum > 5, etc)
+
+- Formio lets you do "complex" logic in two ways
+    - JS 🚫
+    - JSONLogic ✔️
+
+---
+
+<!-- JSON Logic is writing basic logic, in JSON. The upside to this is there's a PHP library for it already, which we incorporated into the dynamic-forms validator. 
+
+Since this is doing basic logic, this is all data being evaluated. It's not user-supplied code running in our app. So it's much less likely to result in Bad Security Outcomes.
+
+Formio hooks some Lodash functions into it, to give it things like sum or string concatenation. Otherwise, it just has really basic math and boolean logic operators out of the box.
+
+Adapting Lodash, which is a JS lib, for our server-side stuff was a huge undertaking. We found or reimplemented all the functions it has, in PHP. It took a month, but it's been sooooo worth it. 
+
+We reused all of this for parts of our workflow implementation, too. Moving between steps of the workflow runs some JSONLogic. I don't have time to go into that, but it's really handy for exposing advanced functionality. -->
+
+# JSON Logic
+- This type of thing -- easily sandboxed!
+
+```json
+{
+    "if": [
+        {
+            "<=": [
+                { "var": "data.requestedGrantAmountDollars" },
+                1500
+            ]
+        },
+        true,
+        "Your request cannot exceed $1,500."
+    ]
+}
+```
+
+---
+
+<!-- This is an example of a form one of our grant-givers set up. It's a budget, broken down by expense types, for a conference travel reimbursement. They can get 50% of their expenses up to $1500 reimbursed.
+
+There are actually like 15 cost fields, I just can't fit them all on the slide. But at the bottom, highlighted in green, somebody used JSON Logic to sum up all the fields.
+
+Highlighted in blue, they use JSON Logic again to do the 50% up to $1,500 logic. That value gets used in subsequent steps of the workflow, ending up on the payroll paperwork.
+
+Powerful stuff. -->
+
+![bg fit](./assets/calculations.png)
 
 ---
 
@@ -603,6 +767,7 @@ The key is probably pagination. It selects 25 records at a time, so there's alwa
 - This is a huge architectural choice for your app
 - Dynamic forms solve HTML drudgery and empower admins
     - At the cost of **way more complexity** for dev
+    - Gotta have all these ways to deal with NoSQL-esque data!
 - Sometimes: this trade-off is worth it!
     - A lot of times: *it ain't.*
 
@@ -612,4 +777,8 @@ The key is probably pagination. It selects 25 records at a time, so there's alwa
 <!-- _paginate: false -->
 
 # The End
-#### *or perhaps the beginning, for you?*
+Thanks for your interest!
+
+Scan the QR code if you'd like a copy of this deck, or want the link to the `dynamic-forms` package.
+
+![bg left 90%](./assets/slide-deck-qr.png)
